@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TKounter Node Provision | Configuration</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="../../node_modules/feather-icons/dist/feather.min.js"></script>
+  </head>
+  <body data-screen="config">
+    <main class="wizard-shell">
+      <aside class="step-rail">
+        <div class="brand-block">
+          <p class="eyebrow">Desktop Provisioning</p>
+          <h1>TKounter Node Provision</h1>
+          <p class="lead">
+            Guided setup to prepare an OpenWrt node and register it against the
+            production backend.
+          </p>
+        </div>
+        <ol class="step-list">
+          <li class="active">Server</li>
+          <li>Node</li>
+          <li>Credentials</li>
+          <li>Provision</li>
+          <li>Result</li>
+        </ol>
+        <div class="rail-note">
+          <p>
+            Admin access is stored locally. The token only lives in the wizard
+            session.
+          </p>
+        </div>
+      </aside>
+
+      <section class="stage">
+        <div class="stage-card card-large">
+          <div class="card-header">
+            <p class="step-tag">Step 1</p>
+            <h2>Configure server and connect</h2>
+            <p>
+              Selecciona el entorno del servidor, revisa sus parámetros e
+              introduce las credenciales de administrador para continuar.
+            </p>
+          </div>
+
+          <div class="card-scroll">
+            <div class="env-grid" id="envGrid">
+              <button type="button" class="env-card" data-env="local">
+                <div class="env-card-icon"><i data-feather="home"></i></div>
+                <div class="env-card-body">
+                  <h3>Local (Oficina)</h3>
+                  <p>192.168.1.100 · para pruebas</p>
+                </div>
+              </button>
+              <button type="button" class="env-card" data-env="dev">
+                <div class="env-card-icon"><i data-feather="code"></i></div>
+                <div class="env-card-body">
+                  <h3>Desarrollo</h3>
+                  <p>dev.techkovery.eu</p>
+                </div>
+              </button>
+              <button type="button" class="env-card" data-env="prod">
+                <div class="env-card-icon"><i data-feather="server"></i></div>
+                <div class="env-card-body">
+                  <h3>Producción</h3>
+                  <p>techkovery.eu</p>
+                </div>
+              </button>
+            </div>
+
+            <div class="env-summary hidden" id="envSummary">
+              <div class="env-summary-head">
+                <h3 id="envSummaryTitle">Entorno seleccionado</h3>
+                <button class="ghost small" id="editEnvBtn" type="button">
+                  <i data-feather="edit-2"></i>
+                  Editar
+                </button>
+              </div>
+              <dl class="env-summary-grid">
+                <div>
+                  <dt>API Base URL</dt>
+                  <dd id="sumApiBaseUrl">-</dd>
+                </div>
+                <div>
+                  <dt>WS URL</dt>
+                  <dd id="sumWsUrl">-</dd>
+                </div>
+                <div>
+                  <dt>Nodes runtime</dt>
+                  <dd id="sumNodesRuntimeUrl">-</dd>
+                </div>
+                <div>
+                  <dt>Tunnel server</dt>
+                  <dd id="sumServerName">-</dd>
+                </div>
+              </dl>
+            </div>
+
+            <div class="form-grid form-grid-2 hidden" id="credentialsPanel">
+              <label>
+                <span>Admin user</span>
+                <input id="adminUser" autocomplete="username" />
+              </label>
+              <label>
+                <span>Admin password</span>
+                <input
+                  id="adminPassword"
+                  type="password"
+                  autocomplete="current-password"
+                />
+              </label>
+            </div>
+
+            <div class="status-banner" id="configStatus">
+              Selecciona un entorno para continuar
+            </div>
+          </div>
+
+          <div class="panel-foot">
+            <button class="primary" id="connectBtn" type="button" disabled>
+              Connect and continue
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div class="modal-backdrop hidden" id="editModalBackdrop">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h3>Editar parámetros del entorno</h3>
+          <button class="icon-btn" id="closeModalBtn" type="button">
+            <i data-feather="x"></i>
+          </button>
+        </div>
+        <div class="modal-body form-grid">
+          <label>
+            <span>API Base URL</span>
+            <input id="modalApiBaseUrl" autocomplete="off" />
+          </label>
+          <label>
+            <span>WS URL</span>
+            <input id="modalWsUrl" autocomplete="off" />
+          </label>
+          <label>
+            <span>Nodes runtime URL</span>
+            <input id="modalNodesRuntimeUrl" autocomplete="off" />
+          </label>
+          <label>
+            <span>Tunnel server</span>
+            <input id="modalServerName" autocomplete="off" />
+          </label>
+        </div>
+        <div class="modal-foot">
+          <button class="ghost" id="cancelModalBtn" type="button">
+            Cancelar
+          </button>
+          <button class="primary" id="saveModalBtn" type="button">
+            Guardar cambios
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script src="./wizard.js"></script>
+  </body>
+</html>

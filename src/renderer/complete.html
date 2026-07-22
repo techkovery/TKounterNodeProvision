@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TKounter Node Provision | Result</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="../../node_modules/feather-icons/dist/feather.min.js"></script>
+  </head>
+  <body data-screen="complete">
+    <main class="wizard-shell">
+      <aside class="step-rail">
+        <div class="brand-block">
+          <p class="eyebrow">Desktop Provisioning</p>
+          <h1>Final summary</h1>
+          <p class="lead">
+            Final check before closing or starting with another node.
+          </p>
+        </div>
+        <ol class="step-list">
+          <li class="done">Server</li>
+          <li class="done">Node</li>
+          <li class="done">Credentials</li>
+          <li class="done">Provision</li>
+          <li class="active">Result</li>
+        </ol>
+      </aside>
+
+      <section class="stage">
+        <div class="stage-card card-large">
+          <div class="card-header">
+            <p class="step-tag">Step 5</p>
+            <h2 id="completeTitle">Provisioning finished</h2>
+            <p id="completeSubtitle"></p>
+          </div>
+
+          <div class="status-banner" id="completeStatus"></div>
+
+          <div class="summary-grid">
+            <article>
+              <span>Host</span>
+              <strong id="summaryHost">-</strong>
+            </article>
+            <article>
+              <span>UUID</span>
+              <strong id="summaryUuid">-</strong>
+            </article>
+            <article>
+              <span>Tunnel port</span>
+              <strong id="summaryPort">-</strong>
+            </article>
+            <article>
+              <span>Suggested SSH</span>
+              <strong id="summaryAccess">-</strong>
+            </article>
+          </div>
+
+          <div class="log-panel" id="finalLogOutput"></div>
+
+          <div class="panel-foot">
+            <button class="ghost" id="restartBtn" type="button">
+              Provision another node
+            </button>
+            <button class="primary" id="againBtn" type="button">
+              Retry from credentials
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="./wizard.js"></script>
+  </body>
+</html>

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TKounter Node Provision | Node</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="../../node_modules/feather-icons/dist/feather.min.js"></script>
+  </head>
+  <body data-screen="discover">
+    <main class="wizard-shell">
+      <aside class="step-rail">
+        <div class="brand-block">
+          <p class="eyebrow">Desktop Provisioning</p>
+          <h1>Node Selection</h1>
+          <p class="lead">
+            Automatic discovery scans private networks visible from this machine
+            and looks for open SSH.
+          </p>
+        </div>
+        <ol class="step-list">
+          <li class="done">Server</li>
+          <li class="active">Node</li>
+          <li>Credentials</li>
+          <li>Provision</li>
+          <li>Result</li>
+        </ol>
+        <div class="rail-note compact">
+          <p>
+            We do not depend on mDNS or hostnames because they are not always
+            enabled on these routers. The reliable fallback is scanning private
+            IPv4 and allowing manual IP.
+          </p>
+        </div>
+      </aside>
+
+      <section class="stage">
+        <div class="stage-card split-card">
+          <div class="card-block">
+            <div class="card-header">
+              <p class="step-tag">Step 2</p>
+              <h2>Find the node on the local network</h2>
+              <p>
+                You can scan the network or enter the IP directly. After you
+                select an IP, continue to the credentials step.
+              </p>
+            </div>
+
+            <div class="server-summary" id="serverSummary"></div>
+
+            <div class="action-row action-row-tight">
+              <button class="primary" id="discoverBtn" type="button">
+                Scan local network
+              </button>
+              <button class="ghost" id="manualContinueBtn" type="button">
+                Use manual IP
+              </button>
+            </div>
+
+            <label>
+              <span>Manual IP</span>
+              <input
+                id="manualIp"
+                placeholder="192.168.8.1"
+                autocomplete="off"
+              />
+            </label>
+
+            <div class="status-banner" id="discoverStatus">
+              No node selected yet
+            </div>
+          </div>
+
+          <div class="card-block list-block">
+            <div class="list-head">
+              <h3>Discovery results</h3>
+              <span id="discoverMeta">Not scanned</span>
+            </div>
+            <div class="host-list" id="discoverResults"></div>
+          </div>
+        </div>
+
+        <div class="stage-actions">
+          <button class="ghost" id="backBtn" type="button">
+            <i data-feather="arrow-left"></i>
+            Back
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <script src="./wizard.js"></script>
+  </body>
+</html>

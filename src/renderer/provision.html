@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TKounter Node Provision | Provision</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="../../node_modules/feather-icons/dist/feather.min.js"></script>
+  </head>
+  <body data-screen="provision">
+    <main class="wizard-shell">
+      <aside class="step-rail">
+        <div class="brand-block">
+          <p class="eyebrow">Desktop Provisioning</p>
+          <h1>Provisioning in progress</h1>
+          <p class="lead">
+            This phase prepares the node, registers backend keys and leaves the
+            tunnel up.
+          </p>
+        </div>
+        <ol class="step-list">
+          <li class="done">Server</li>
+          <li class="done">Node</li>
+          <li class="done">Credentials</li>
+          <li class="active">Provision</li>
+          <li>Result</li>
+        </ol>
+      </aside>
+
+      <section class="stage">
+        <div class="stage-card card-large provision-card">
+          <div class="card-header">
+            <p class="step-tag">Step 4</p>
+            <h2>Run provisioning</h2>
+            <p id="provisionSummary"></p>
+          </div>
+
+          <div class="progress-panel">
+            <div class="progress-head">
+              <span id="progressLabel">Ready to start</span>
+              <strong id="progressPercent">0%</strong>
+            </div>
+            <div class="progress-bar-track">
+              <div class="progress-bar-fill" id="progressBar"></div>
+            </div>
+          </div>
+
+          <div class="status-banner" id="provisionStatus">Pending</div>
+
+          <div class="log-panel" id="logOutput"></div>
+
+          <div class="panel-foot">
+            <button class="ghost" id="retryBtn" type="button">Retry</button>
+            <button class="primary" id="startProvisionBtn" type="button">
+              Start provisioning
+            </button>
+            <button class="primary hidden" id="finishBtn" type="button">
+              View result
+            </button>
+          </div>
+        </div>
+
+        <div class="stage-actions">
+          <button class="ghost" id="backBtn" type="button">
+            <i data-feather="arrow-left"></i>
+            Back
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <script src="./wizard.js"></script>
+  </body>
+</html>
