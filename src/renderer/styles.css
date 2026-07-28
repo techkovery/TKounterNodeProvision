@@ -709,6 +709,7 @@ button.ghost.small {
   border: 1px solid #e2e8f0;
   border-radius: 7px;
   background: #ffffff;
+  min-width: 0;
 }
 
 .progress-head {
@@ -716,6 +717,7 @@ button.ghost.small {
   justify-content: space-between;
   align-items: center;
   gap: 14px;
+  min-width: 0;
 }
 
 .progress-head span {

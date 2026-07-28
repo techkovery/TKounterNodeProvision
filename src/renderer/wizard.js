@@ -585,6 +585,7 @@ function setupProvisionScreen(state) {
             state.provision.failed = false
             state.provision.progress = 100
             state.provision.result = result
+            appendProvisionLog(state, `Node hostname: ${result.hostname}`)
             appendProvisionLog(state, `Suggested SSH command: ${result.defaultSshAccess}`)
             saveState(state)
             renderProvisionUi(state, ui)
@@ -620,6 +621,7 @@ function setupCompleteScreen(state) {
         completeSubtitle: byId('completeSubtitle'),
         completeStatus: byId('completeStatus'),
         summaryHost: byId('summaryHost'),
+        summaryHostname: byId('summaryHostname'),
         summaryUuid: byId('summaryUuid'),
         summaryPort: byId('summaryPort'),
         summaryAccess: byId('summaryAccess'),
@@ -634,6 +636,7 @@ function setupCompleteScreen(state) {
         ui.completeSubtitle.textContent = 'The node was registered and base services were deployed.'
         setBanner(ui.completeStatus, 'Completed successfully', 'success')
         ui.summaryHost.textContent = state.nodeHost || '-'
+        ui.summaryHostname.textContent = result.hostname || '-'
         ui.summaryUuid.textContent = result.nodeUuid || state.inspectedNode?.uuid || '-'
         ui.summaryPort.textContent = String(result.tunnelPort || '-')
         ui.summaryAccess.textContent = result.defaultSshAccess || '-'
@@ -642,6 +645,7 @@ function setupCompleteScreen(state) {
         ui.completeSubtitle.textContent = 'The last run ended with an error. You can retry from credentials.'
         setBanner(ui.completeStatus, state.provision.error || 'No result', 'danger')
         ui.summaryHost.textContent = state.nodeHost || '-'
+        ui.summaryHostname.textContent = '-'
         ui.summaryUuid.textContent = state.inspectedNode?.uuid || '-'
         ui.summaryPort.textContent = '-'
         ui.summaryAccess.textContent = '-'

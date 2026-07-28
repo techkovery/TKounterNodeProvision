@@ -37,6 +37,102 @@ function normalizeWsUrl(wsUrl) {
     return normalized
 }
 
+// Wraps a value in single quotes so it can be safely interpolated into a shell
+// command sent over SSH, regardless of its content (spaces, UTF-8, quotes,
+// `$`, backticks, etc.). This is required now that node names accept
+// arbitrary UTF-8 text, to prevent shell/command injection on the node.
+function shellSingleQuote(value) {
+    return `'${String(value).replace(/'/g, "'\\''")}'`
+}
+
+// Builds the unified shell script installed on the node that keeps the SSH
+// hostname in sync with the (possibly duplicated) descriptive node name.
+// It writes /etc/tkounter/node_name and derives a unique system hostname as
+// tk-<slugified-name>-<first 6 chars of node_uuid>. It is installed once
+// during provisioning but is designed to be re-invoked later (e.g. by the
+// tkounter binary) whenever the backend renames the node, so both paths stay
+// unified in a single place.
+function buildHostnameScriptInstallCommand() {
+    return [
+        'set -e',
+        'mkdir -p /etc/tkounter',
+        'cat > /usr/bin/tkounter-hostname.sh <<"EOT"',
+        '#!/bin/sh',
+        '# Unified hostname/name script: writes /etc/tkounter/node_name and applies',
+        '# the derived system hostname (tk-<slug>-<uuid6>). Called during initial',
+        '# provisioning and can be invoked again later (e.g. by the tkounter binary)',
+        '# whenever the node name changes from the backend, keeping the SSH hostname',
+        '# in sync. Usage: tkounter-hostname.sh ["new node name"]',
+        'set -e',
+        'NODE_NAME="$1"',
+        'NAME_FILE="/etc/tkounter/node_name"',
+        'UUID_FILE="/etc/tkounter/node_uuid"',
+        '[ -n "$NODE_NAME" ] || { [ -f "$NAME_FILE" ] && NODE_NAME=$(cat "$NAME_FILE"); }',
+        '[ -n "$NODE_NAME" ] || { echo "Usage: $0 <node_name>" >&2; exit 1; }',
+        '[ -f "$UUID_FILE" ] || { echo "Missing $UUID_FILE" >&2; exit 1; }',
+        'NODE_UUID=$(cat "$UUID_FILE")',
+        'SHORT_UUID=$(printf "%s" "$NODE_UUID" | tr -d "-" | tr "A-Z" "a-z" | cut -c1-6)',
+        '[ -n "$SHORT_UUID" ] || { echo "Invalid node_uuid" >&2; exit 1; }',
+        'slugify() {',
+        '  printf "%s" "$1" \\',
+        '    | sed -e "s/á/a/g" -e "s/à/a/g" -e "s/ä/a/g" -e "s/â/a/g" -e "s/ã/a/g" \\',
+        '          -e "s/é/e/g" -e "s/è/e/g" -e "s/ë/e/g" -e "s/ê/e/g" \\',
+        '          -e "s/í/i/g" -e "s/ì/i/g" -e "s/ï/i/g" -e "s/î/i/g" \\',
+        '          -e "s/ó/o/g" -e "s/ò/o/g" -e "s/ö/o/g" -e "s/ô/o/g" -e "s/õ/o/g" \\',
+        '          -e "s/ú/u/g" -e "s/ù/u/g" -e "s/ü/u/g" -e "s/û/u/g" \\',
+        '          -e "s/ñ/n/g" -e "s/ç/c/g" \\',
+        '          -e "s/Á/A/g" -e "s/À/A/g" -e "s/Ä/A/g" -e "s/Â/A/g" -e "s/Ã/A/g" \\',
+        '          -e "s/É/E/g" -e "s/È/E/g" -e "s/Ë/E/g" -e "s/Ê/E/g" \\',
+        '          -e "s/Í/I/g" -e "s/Ì/I/g" -e "s/Ï/I/g" -e "s/Î/I/g" \\',
+        '          -e "s/Ó/O/g" -e "s/Ò/O/g" -e "s/Ö/O/g" -e "s/Ô/O/g" -e "s/Õ/O/g" \\',
+        '          -e "s/Ú/U/g" -e "s/Ù/U/g" -e "s/Ü/U/g" -e "s/Û/U/g" \\',
+        '          -e "s/Ñ/N/g" -e "s/Ç/C/g" \\',
+        '    | tr "A-Z" "a-z" \\',
+        '    | sed -r "s/[^a-z0-9]+/-/g; s/^-+//; s/-+\\$//"',
+        '}',
+        'LABEL=$(slugify "$NODE_NAME")',
+        '[ -n "$LABEL" ] || LABEL="node"',
+        'MAX_LABEL_LEN=53',
+        'LABEL=$(printf "%s" "$LABEL" | cut -c1-"$MAX_LABEL_LEN" | sed -r "s/-+\\$//")',
+        '[ -n "$LABEL" ] || LABEL="node"',
+        'NEW_HOSTNAME="tk-${LABEL}-${SHORT_UUID}"',
+        'printf "%s" "$NODE_NAME" > "$NAME_FILE"',
+        'if command -v uci >/dev/null 2>&1; then',
+        '  uci set system.@system[0].hostname="$NEW_HOSTNAME"',
+        '  uci commit system',
+        'fi',
+        'echo "$NEW_HOSTNAME" > /proc/sys/kernel/hostname 2>/dev/null || true',
+        'sed -i "/# tkounter-hostname/d" /etc/hosts 2>/dev/null || true',
+        'printf "127.0.0.1\\t%s # tkounter-hostname\\n" "$NEW_HOSTNAME" >> /etc/hosts 2>/dev/null || true',
+        '[ -x /etc/init.d/system ] && /etc/init.d/system reload >/dev/null 2>&1 || true',
+        '# Regenerate the SSH login banner so it always reflects the current name,',
+        '# uuid and hostname instead of hardcoding them (this block re-runs every',
+        '# time this script runs, i.e. on provisioning and on later rename events).',
+        'BANNER_FILE="/etc/banner"',
+        'cat > "$BANNER_FILE" <<"EOB"',
+        '-----------------------------------------------------',
+        ' _____ _  __                 _',
+        '|_   _| |/ /___  _   _ _ __ | |_ ___ _ __',
+        "  | | | ' // _ \\| | | | '_ \\| __/ _ \\ '__|",
+        '  | | | . \\ (_) | |_| | | | | ||  __/ |',
+        '  |_| |_|\\_\\___/ \\__,_|_| |_|\\__\\___|_|',
+        '',
+        '-----------------------------------------------------',
+        'TechKovery TKounter Node',
+        '',
+        'EOB',
+        'printf "Name: %s\\nUUID: %s\\nHost: %s\\n" "$NODE_NAME" "$NODE_UUID" "$NEW_HOSTNAME" >> "$BANNER_FILE"',
+        'printf -- "-----------------------------------------------------\\n" >> "$BANNER_FILE"',
+        'if command -v uci >/dev/null 2>&1 && [ -f /etc/config/dropbear ]; then',
+        '  uci set dropbear.@dropbear[0].BannerFile="$BANNER_FILE" 2>/dev/null || true',
+        '  uci commit dropbear 2>/dev/null || true',
+        'fi',
+        'echo "$NEW_HOSTNAME"',
+        'EOT',
+        'chmod +x /usr/bin/tkounter-hostname.sh'
+    ].join('\n')
+}
+
 function isPrivateIPv4(ip) {
     if (!ip || typeof ip !== 'string') return false
     return ip.startsWith('10.') || ip.startsWith('192.168.') || /^172\.(1[6-9]|2\d|3[0-1])\./.test(ip)
@@ -485,12 +581,20 @@ async function runProvisioning({
         if (typeof onProgress === 'function') onProgress(message)
     }
 
-    const normalizedName = String(name || '').trim()
+    // Node names are free-form descriptive text (can include spaces and any
+    // UTF-8 characters) and may be duplicated across nodes; the actual unique
+    // system hostname is derived from it plus a short UUID suffix on the node
+    // itself (see buildHostnameScriptInstallCommand). Here we only guard
+    // against empty/oversized/control-character input.
+    const normalizedName = String(name || '').trim().replace(/\s+/g, ' ')
     if (!normalizedName) {
         throw new Error('Node name is required')
     }
-    if (!/^[a-zA-Z0-9 _.-]{1,64}$/.test(normalizedName)) {
-        throw new Error('Invalid node name format')
+    if (normalizedName.length > 64) {
+        throw new Error('Node name is too long (max 64 characters)')
+    }
+    if (/[\u0000-\u001f\u007f]/.test(normalizedName)) {
+        throw new Error('Node name contains invalid control characters')
     }
 
     const normalizedNodesRuntimeUrl = normalizeBaseUrl(nodesRuntimeUrl)
@@ -522,6 +626,28 @@ async function runProvisioning({
     ].join('\n')
 
     await sshExec({ host, username, password, command: prepScript, timeoutMs: 180000, onOutput: log })
+
+    log('Configuring node hostname...')
+    await sshExec({
+        host,
+        username,
+        password,
+        command: buildHostnameScriptInstallCommand(),
+        timeoutMs: 30000,
+        onOutput: log
+    })
+    const { stdout: hostnameOut } = await sshExec({
+        host,
+        username,
+        password,
+        command: `/usr/bin/tkounter-hostname.sh ${shellSingleQuote(normalizedName)}`,
+        timeoutMs: 20000,
+        onOutput: log
+    })
+    const appliedHostname = hostnameOut.trim().split('\n').filter(Boolean).pop() || ''
+    if (appliedHostname) {
+        log(`Node hostname set to: ${appliedHostname}`)
+    }
 
     log('Reading node metadata and public keys...')
     const inspect = await inspectNode({ host, username, password })
@@ -615,14 +741,12 @@ async function runProvisioning({
     log('Installing bootstrap/config and tkounter binary...')
     const installScript = [
         'set -e',
-        `NODE_NAME="${normalizedName}"`,
         `NODES_RUNTIME_URL="${normalizedNodesRuntimeUrl}"`,
         `WS_URL="${normalizedWsUrl}"`,
         `UPDATES_BASE_URL="${UPDATES_BASE_URL}"`,
         `UPDATES_APP="${UPDATES_APP}"`,
         `UPDATES_FLAVOR="${UPDATES_FLAVOR}"`,
         'mkdir -p /etc/tkounter /overlay/tkounter /tmp/tkounter-update',
-        'printf "%s" "$NODE_NAME" > /etc/tkounter/node_name',
         '[ -f /etc/tkounter/bootstrap.json ] || cat > /etc/tkounter/bootstrap.json <<"EOT"',
         '{',
         '  "network": { "server_url": "__NODES_RUNTIME_URL__", "ws_url": "__WS_URL__", "timeout_sec": 5, "ws_enabled": true },',
@@ -701,6 +825,7 @@ async function runProvisioning({
     log('Provisioning completed successfully.')
     return {
         nodeUuid: inspect.uuid,
+        hostname: appliedHostname || inspect.hostname,
         tunnelPort,
         defaultSshAccess: `ssh root@localhost -p ${tunnelPort}`,
         state: 'ok'
