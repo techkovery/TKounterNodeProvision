@@ -1,6 +1,6 @@
 {
     "name": "tkounter-node-provision",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "Desktop provisioning tool for TKounter nodes",
     "main": "src/main/main.js",
     "scripts": {
