@@ -49,4 +49,22 @@ ensure ClientAliveCountMax 3
 
 systemctl restart ssh || systemctl restart sshd
 
+########################################
+# Clave de admin del servidor (root -> nodos)
+########################################
+# Par de claves para que "ssh root@localhost -p <tunnelPort>" (a través del
+# túnel inverso) entre sin pedir contraseña. La privada se queda SIEMPRE en
+# este servidor, en la ruta por defecto de ssh (id_ed25519), así el comando
+# funciona sin -i. La pública la expone el backend (endpoint que lee este
+# .pub) para que el provisionador la instale en /etc/dropbear/authorized_keys
+# de cada nodo durante el provisioning. Ver scripts/backend-jobs/serverAdminKeyRoute.js.
+
+mkdir -p /root/.ssh
+chmod 700 /root/.ssh
+if [ ! -f /root/.ssh/id_ed25519 ]; then
+  ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N "" -q -C "tkounter-server-admin"
+fi
+chmod 600 /root/.ssh/id_ed25519
+chmod 644 /root/.ssh/id_ed25519.pub
+
 echo "=== SERVER READY ==="

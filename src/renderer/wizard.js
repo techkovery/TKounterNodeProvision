@@ -587,6 +587,7 @@ function setupProvisionScreen(state) {
             state.provision.result = result
             appendProvisionLog(state, `Node hostname: ${result.hostname}`)
             appendProvisionLog(state, `Suggested SSH command: ${result.defaultSshAccess}`)
+            appendProvisionLog(state, result.adminKeyInstalled ? 'Passwordless admin SSH: enabled' : 'Passwordless admin SSH: not available (server admin key missing)')
             saveState(state)
             renderProvisionUi(state, ui)
         } catch (error) {
@@ -625,6 +626,7 @@ function setupCompleteScreen(state) {
         summaryUuid: byId('summaryUuid'),
         summaryPort: byId('summaryPort'),
         summaryAccess: byId('summaryAccess'),
+        summaryAdminKey: byId('summaryAdminKey'),
         finalLogOutput: byId('finalLogOutput'),
         restartBtn: byId('restartBtn'),
         againBtn: byId('againBtn')
@@ -640,6 +642,7 @@ function setupCompleteScreen(state) {
         ui.summaryUuid.textContent = result.nodeUuid || state.inspectedNode?.uuid || '-'
         ui.summaryPort.textContent = String(result.tunnelPort || '-')
         ui.summaryAccess.textContent = result.defaultSshAccess || '-'
+        ui.summaryAdminKey.textContent = result.adminKeyInstalled ? 'Enabled' : 'Not available'
     } else {
         ui.completeTitle.textContent = 'Provisioning interrupted'
         ui.completeSubtitle.textContent = 'The last run ended with an error. You can retry from credentials.'
@@ -649,6 +652,7 @@ function setupCompleteScreen(state) {
         ui.summaryUuid.textContent = state.inspectedNode?.uuid || '-'
         ui.summaryPort.textContent = '-'
         ui.summaryAccess.textContent = '-'
+        ui.summaryAdminKey.textContent = '-'
     }
 
     renderLogs(ui.finalLogOutput, state.provision.logs)

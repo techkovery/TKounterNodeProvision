@@ -443,6 +443,23 @@ async function callProvisionEndpoint({ apiBaseUrl, token, nodeUuid, name, mac, h
     return response.data
 }
 
+// Fetches the server's admin SSH public key from the backend (generated once
+// by scripts/install_server.sh in /root/.ssh/id_ed25519.pub). Returns '' if
+// unavailable so provisioning can continue without passwordless admin access
+// rather than failing the whole flow.
+async function fetchServerAdminPublicKey({ apiBaseUrl, token }) {
+    const url = `${normalizeBaseUrl(apiBaseUrl)}/api/nodes-provision/server-admin-key`
+    try {
+        const response = await axios.get(url, {
+            headers: { 'x-access-token': token },
+            timeout: 15000
+        })
+        return String(response.data?.publicKey || '').trim()
+    } catch {
+        return ''
+    }
+}
+
 async function authLogin({ apiBaseUrl, username, password }) {
     const url = `${normalizeBaseUrl(apiBaseUrl)}/api/auth/signin`
     const response = await axios.post(url, {
@@ -649,6 +666,25 @@ async function runProvisioning({
         log(`Node hostname set to: ${appliedHostname}`)
     }
 
+    log('Fetching server admin key for passwordless SSH...')
+    const serverAdminPublicKey = await fetchServerAdminPublicKey({ apiBaseUrl, token })
+    let adminKeyInstalled = false
+    if (serverAdminPublicKey) {
+        const installKeyScript = [
+            'set -e',
+            'mkdir -p /etc/dropbear',
+            'touch /etc/dropbear/authorized_keys',
+            'chmod 600 /etc/dropbear/authorized_keys',
+            `KEY=${shellSingleQuote(serverAdminPublicKey)}`,
+            'grep -qxF "$KEY" /etc/dropbear/authorized_keys || printf "%s\\n" "$KEY" >> /etc/dropbear/authorized_keys'
+        ].join('\n')
+        await sshExec({ host, username, password, command: installKeyScript, timeoutMs: 20000, onOutput: log })
+        adminKeyInstalled = true
+        log('Server admin key installed on node.')
+    } else {
+        log('Server admin key not available, skipping passwordless SSH setup.')
+    }
+
     log('Reading node metadata and public keys...')
     const inspect = await inspectNode({ host, username, password })
     const { stdout: keyOut } = await sshExec({
@@ -828,6 +864,7 @@ async function runProvisioning({
         hostname: appliedHostname || inspect.hostname,
         tunnelPort,
         defaultSshAccess: `ssh root@localhost -p ${tunnelPort}`,
+        adminKeyInstalled,
         state: 'ok'
     }
 }
