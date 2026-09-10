@@ -4,7 +4,7 @@ const pkg = require('../package.json')
 const config = require('./config')
 const jobs = require('./jobs')
 const { requireAuth } = require('./auth')
-const { discoverNodes, inspectNode, runProvisioning } = require('./provisioning')
+const { discoverNodes, inspectNode, prepareNode, finishProvisioning } = require('./provisioning')
 
 const cfg = config.load()
 
@@ -15,14 +15,13 @@ if (process.argv.includes('--show-token')) {
 
 const LOCALHOST_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i
 
-// An origin is allowed to call this service if it belongs to one of the
-// configured environments (prod/dev/...) or is a local dev build (vite etc.);
-// anything else (a random webpage) is rejected by the browser via CORS.
+// This service only executes LAN discovery/SSH orders for whichever page is
+// driving it - it never calls the TKounterManager backend itself, so CORS
+// here is just "which pages may drive it", not a credential-leak boundary.
 function isOriginAllowed(origin) {
     if (!origin) return true // same-machine tools (curl, health checks) send no Origin header
     if (LOCALHOST_ORIGIN.test(origin)) return true
-    const environments = config.get().environments || {}
-    return Object.values(environments).some((env) => (env.origins || []).includes(origin))
+    return config.isOriginAllowed(origin)
 }
 
 const app = express()
@@ -44,23 +43,14 @@ app.get('/health', (req, res) => {
 
 app.use(requireAuth)
 
-// Lets the wizard show which deployment it will provision against before the
-// operator confirms ("detected" is what /provision would resolve for this
-// same request, i.e. driven by the caller's own Origin header).
 app.get('/config', (req, res) => {
-    const { environments, defaultEnvironment } = config.get()
-    let detected = null
-    try {
-        detected = config.resolveEnvironment(req.headers.origin).key
-    } catch {
-        detected = null
-    }
-    res.json({ environments, defaultEnvironment, detected })
+    const { customOrigins } = config.get()
+    res.json({ builtinOrigins: config.BUILTIN_ORIGINS, customOrigins })
 })
 
 app.put('/config', (req, res) => {
-    const { environments, defaultEnvironment } = config.update(req.body)
-    res.json({ environments, defaultEnvironment })
+    const { customOrigins } = config.update(req.body)
+    res.json({ builtinOrigins: config.BUILTIN_ORIGINS, customOrigins })
 })
 
 app.post('/discover', async (req, res) => {
@@ -86,52 +76,58 @@ app.post('/inspect', async (req, res) => {
     }
 })
 
-// Provisioning runs in the background; the client tracks it via jobId
-// (snapshot polling on GET /provision/:jobId or live updates via SSE).
-//
-// The target deployment (apiBaseUrl/wsUrl/nodesRuntimeUrl/serverName) is
-// NEVER taken from the request body: it is resolved server-side from the
-// caller's Origin header (or an explicit "environment" key, validated
-// against the configured list). Trusting client-supplied URLs here would let
-// a compromised page redirect the admin bearer token to an attacker host.
-app.post('/provision', (req, res) => {
-    const { host, name, username, password, token, environment } = req.body || {}
-    if (!host || !name || !username || !token) {
-        return res.status(400).json({ error: 'host, name, username and token are required' })
-    }
-
-    let env
-    try {
-        env = config.resolveEnvironment(req.headers.origin, environment)
-    } catch (err) {
-        return res.status(400).json({ error: err.message })
+// Both /prepare and /finish run in the background and are tracked the same
+// way via jobId (snapshot polling on GET /jobs/:jobId or live updates via
+// GET /jobs/:jobId/stream). Neither step calls the TKounterManager backend:
+// React does that in between, using the facts prepareNode() returns to call
+// its own backend, then passes whatever the backend replied with to /finish.
+app.post('/prepare', (req, res) => {
+    const { host, name, username, password } = req.body || {}
+    if (!host || !name || !username) {
+        return res.status(400).json({ error: 'host, name and username are required' })
     }
 
     const job = jobs.createJob()
-
-    runProvisioning({
+    prepareNode({
         host,
         name,
         username,
         password,
-        token,
-        apiBaseUrl: env.apiBaseUrl,
-        wsUrl: env.wsUrl,
-        nodesRuntimeUrl: env.nodesRuntimeUrl,
-        serverName: env.serverName,
         onProgress: (message) => jobs.appendLog(job, message)
     }).then((result) => jobs.finish(job, result)).catch((err) => jobs.fail(job, err))
 
-    res.status(202).json({ jobId: job.id, environment: env.key })
+    res.status(202).json({ jobId: job.id })
 })
 
-app.get('/provision/:jobId', (req, res) => {
+app.post('/finish', (req, res) => {
+    const { host, username, password, serverName, wsUrl, nodesRuntimeUrl, tunnelPort, serverAdminPublicKey } = req.body || {}
+    if (!host || !username || !serverName || !wsUrl || !nodesRuntimeUrl || !tunnelPort) {
+        return res.status(400).json({ error: 'host, username, serverName, wsUrl, nodesRuntimeUrl and tunnelPort are required' })
+    }
+
+    const job = jobs.createJob()
+    finishProvisioning({
+        host,
+        username,
+        password,
+        serverName,
+        wsUrl,
+        nodesRuntimeUrl,
+        tunnelPort,
+        serverAdminPublicKey,
+        onProgress: (message) => jobs.appendLog(job, message)
+    }).then((result) => jobs.finish(job, result)).catch((err) => jobs.fail(job, err))
+
+    res.status(202).json({ jobId: job.id })
+})
+
+app.get('/jobs/:jobId', (req, res) => {
     const job = jobs.getJob(req.params.jobId)
     if (!job) return res.status(404).json({ error: 'job_not_found' })
     res.json({ status: job.status, logs: job.logs, result: job.result, error: job.error })
 })
 
-app.get('/provision/:jobId/stream', (req, res) => {
+app.get('/jobs/:jobId/stream', (req, res) => {
     const job = jobs.getJob(req.params.jobId)
     if (!job) return res.status(404).json({ error: 'job_not_found' })
 

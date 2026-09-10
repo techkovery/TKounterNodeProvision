@@ -1,0 +1,3 @@
+- Mover scripts bash a ficheros a parte
+- Añadir icono
+- Build app

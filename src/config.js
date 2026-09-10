@@ -6,49 +6,18 @@ const crypto = require('crypto')
 const CONFIG_DIR = process.env.TKOUNTER_PROVISION_HOME || path.join(os.homedir(), '.tkounter-node-provision')
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json')
 
-// Known TKounterManager deployments this service is allowed to provision
-// nodes against. "origins" are matched against the request's Origin header
-// to auto-detect which one is calling (prod/dev share the same physical
-// server for the SSH tunnel, only the manager/nodes-runtime vhosts differ,
-// see TKounterManager/deploy/nginx/{techkovery,dev.techkovery}.conf).
-// Operators can add their own entries (e.g. a "local" one for a LAN dev
-// build) via PUT /config without touching these defaults.
+// This service never talks to the TKounterManager backend itself (React does,
+// with its own session token) - it only executes LAN discovery/SSH orders on
+// React's behalf. So the only thing left to configure locally is which pages
+// are allowed to drive it at all (CORS), not which backend to call.
+const BUILTIN_ORIGINS = ['https://techkovery.eu', 'https://www.techkovery.eu', 'https://dev.techkovery.eu']
+
 const DEFAULTS = {
-    environments: {
-        prod: {
-            origins: ['https://techkovery.eu', 'https://www.techkovery.eu'],
-            apiBaseUrl: 'https://techkovery.eu',
-            wsUrl: 'ws://nodes.techkovery.eu/ws',
-            nodesRuntimeUrl: 'https://nodes.techkovery.eu',
-            serverName: 'techkovery.eu'
-        },
-        dev: {
-            origins: ['https://dev.techkovery.eu'],
-            apiBaseUrl: 'https://dev.techkovery.eu',
-            wsUrl: 'ws://nodes-dev.techkovery.eu/ws',
-            nodesRuntimeUrl: 'https://nodes-dev.techkovery.eu',
-            serverName: 'techkovery.eu'
-        },
-        // Unlike prod/dev, there's no fixed hostname: each office runs its own
-        // TKounterManager instance on a LAN IP. Starts empty and is meant to
-        // be filled in once via PUT /config (the React wizard's "Editar" form).
-        local: {
-            origins: [],
-            apiBaseUrl: '',
-            wsUrl: '',
-            nodesRuntimeUrl: '',
-            serverName: ''
-        }
-    },
-    // Used when a request has no Origin header (e.g. manual curl testing)
-    // and no explicit "environment" was given in the body.
-    defaultEnvironment: 'prod',
+    // Extra origins an operator can add (e.g. their office's TKounterManager
+    // instance served from a LAN IP) on top of BUILTIN_ORIGINS, via PUT /config.
+    customOrigins: [],
     pairingToken: null
 }
-
-// prod/dev point at the real TKounterManager infra and must not be
-// repointed via the HTTP API; only custom entries (e.g. "local") are editable.
-const RESERVED_ENVIRONMENT_KEYS = ['prod', 'dev']
 
 let cached = null
 
@@ -73,7 +42,7 @@ function load() {
         }
     }
 
-    const merged = { ...DEFAULTS, ...stored, environments: { ...DEFAULTS.environments, ...stored.environments } }
+    const merged = { ...DEFAULTS, ...stored }
     if (!merged.pairingToken) {
         merged.pairingToken = crypto.randomBytes(24).toString('hex')
     }
@@ -87,71 +56,24 @@ function get() {
     return cached || load()
 }
 
-// Merges each incoming environment onto its current values (so editing e.g.
-// "local" only requires sending the changed fields) and auto-derives
-// "origins" from apiBaseUrl when not given explicitly, since in practice the
-// SPA is served from the same origin as the API it talks to.
 function update(patch = {}) {
     const current = get()
     const next = { ...current }
 
-    if (patch.environments && typeof patch.environments === 'object') {
-        next.environments = { ...current.environments }
-        for (const [key, patchedEnv] of Object.entries(patch.environments)) {
-            if (RESERVED_ENVIRONMENT_KEYS.includes(key)) continue
-            const merged = { ...(current.environments[key] || {}), ...patchedEnv }
-            if (!patchedEnv.origins && merged.apiBaseUrl) {
-                try {
-                    merged.origins = [new URL(merged.apiBaseUrl).origin]
-                } catch {
-                    merged.origins = []
-                }
-            }
-            next.environments[key] = merged
-        }
+    if (Array.isArray(patch.customOrigins)) {
+        next.customOrigins = patch.customOrigins.filter((origin) => typeof origin === 'string' && origin)
     }
 
-    if (typeof patch.defaultEnvironment === 'string') {
-        next.defaultEnvironment = patch.defaultEnvironment
-    }
     persist(next)
     cached = next
     return cached
 }
 
-// Resolves which deployment (apiBaseUrl/wsUrl/nodesRuntimeUrl/serverName) to
-// provision against. Never trusts raw URLs from the caller: only a known
-// environment key (explicitKey) or the verified request Origin can select
-// one, so a compromised/malicious page cannot redirect the admin bearer
-// token to an attacker-controlled apiBaseUrl.
-function resolveEnvironment(origin, explicitKey) {
-    const environments = get().environments || {}
-
-    if (explicitKey) {
-        const env = environments[explicitKey]
-        if (!env) {
-            const error = new Error(`unknown_environment:${explicitKey}`)
-            throw error
-        }
-        return { key: explicitKey, ...env }
-    }
-
-    if (origin) {
-        for (const [key, env] of Object.entries(environments)) {
-            if ((env.origins || []).includes(origin)) {
-                return { key, ...env }
-            }
-        }
-    }
-
-    const fallbackKey = get().defaultEnvironment
-    const fallback = environments[fallbackKey]
-    if (fallback) {
-        return { key: fallbackKey, ...fallback }
-    }
-
-    throw new Error('environment_not_resolved')
+function isOriginAllowed(origin) {
+    if (BUILTIN_ORIGINS.includes(origin)) return true
+    return get().customOrigins.includes(origin)
 }
 
-module.exports = { load, get, update, resolveEnvironment, CONFIG_FILE }
+module.exports = { load, get, update, isOriginAllowed, BUILTIN_ORIGINS, CONFIG_FILE }
+
 

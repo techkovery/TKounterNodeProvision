@@ -7,7 +7,6 @@ const DEFAULT_DISCOVERY_TIMEOUT_MS = 350
 const DEFAULT_DISCOVERY_PORT = 22
 const DEFAULT_DISCOVERY_HTTP_PORT = 80
 const DEFAULT_DISCOVERY_RPC_TIMEOUT_MS = 1500
-const DEFAULT_PORT_BASE = 20000
 const DEFAULT_WS_URL = 'ws://nodes.techkovery.eu/ws'
 const UPDATES_BASE_URL = 'https://updates.techkovery.eu'
 const UPDATES_APP = 'tkounter'
@@ -425,57 +424,6 @@ async function inspectNode({ host, username, password }) {
     }
 }
 
-async function callProvisionEndpoint({ apiBaseUrl, token, nodeUuid, name, mac, hostname, firmwareVersion, regPubKey, tunPubKey }) {
-    const url = `${normalizeBaseUrl(apiBaseUrl)}/api/nodes-provision`
-    const response = await axios.post(url, {
-        uuid: nodeUuid,
-        name,
-        mac,
-        hostname,
-        firmwareVersion,
-        regPubKey,
-        tunPubKey
-    }, {
-        headers: { 'x-access-token': token },
-        timeout: 30000
-    })
-
-    return response.data
-}
-
-// Fetches the server's admin SSH public key from the backend (generated once
-// by scripts/install_server.sh in /root/.ssh/id_ed25519.pub). Returns '' if
-// unavailable so provisioning can continue without passwordless admin access
-// rather than failing the whole flow.
-async function fetchServerAdminPublicKey({ apiBaseUrl, token }) {
-    const url = `${normalizeBaseUrl(apiBaseUrl)}/api/nodes-provision/server-admin-key`
-    try {
-        const response = await axios.get(url, {
-            headers: { 'x-access-token': token },
-            timeout: 15000
-        })
-        return String(response.data?.publicKey || '').trim()
-    } catch {
-        return ''
-    }
-}
-
-async function authLogin({ apiBaseUrl, username, password }) {
-    const url = `${normalizeBaseUrl(apiBaseUrl)}/api/auth/signin`
-    const response = await axios.post(url, {
-        userName: username,
-        password
-    }, {
-        timeout: 15000
-    })
-
-    if (!response.data?.token) {
-        throw new Error('Server did not return an authentication token')
-    }
-
-    return response.data
-}
-
 async function waitForNodeReboot({ host, username, password, onOutput, maxAttempts = 120, delayMs = 5000, initialDelayMs = 3000 }) {
     let seenDown = false
 
@@ -581,18 +529,10 @@ async function waitForServicesRunning({ host, username, password, onOutput, maxA
     throw new Error(`Services unavailable after ${maxAttempts} attempts`)
 }
 
-async function runProvisioning({
-    host,
-    name,
-    username,
-    password,
-    apiBaseUrl,
-    wsUrl,
-    nodesRuntimeUrl,
-    token,
-    serverName,
-    onProgress
-}) {
+// First half of provisioning: everything that only needs SSH access to the
+// node itself, no TKounterManager backend involved. Returns the facts the
+// caller (React) needs to register the node against its own backend.
+async function prepareNode({ host, name, username, password, onProgress }) {
     const log = (message) => {
         console.log(`[PROVISION] ${message}`)
         if (typeof onProgress === 'function') onProgress(message)
@@ -613,9 +553,6 @@ async function runProvisioning({
     if (/[\u0000-\u001f\u007f]/.test(normalizedName)) {
         throw new Error('Node name contains invalid control characters')
     }
-
-    const normalizedNodesRuntimeUrl = normalizeBaseUrl(nodesRuntimeUrl)
-    const normalizedWsUrl = normalizeWsUrl(wsUrl)
 
     log('Preparing node (UUID, keys, base packages)...')
     const prepScript = [
@@ -666,25 +603,6 @@ async function runProvisioning({
         log(`Node hostname set to: ${appliedHostname}`)
     }
 
-    log('Fetching server admin key for passwordless SSH...')
-    const serverAdminPublicKey = await fetchServerAdminPublicKey({ apiBaseUrl, token })
-    let adminKeyInstalled = false
-    if (serverAdminPublicKey) {
-        const installKeyScript = [
-            'set -e',
-            'mkdir -p /etc/dropbear',
-            'touch /etc/dropbear/authorized_keys',
-            'chmod 600 /etc/dropbear/authorized_keys',
-            `KEY=${shellSingleQuote(serverAdminPublicKey)}`,
-            'grep -qxF "$KEY" /etc/dropbear/authorized_keys || printf "%s\\n" "$KEY" >> /etc/dropbear/authorized_keys'
-        ].join('\n')
-        await sshExec({ host, username, password, command: installKeyScript, timeoutMs: 20000, onOutput: log })
-        adminKeyInstalled = true
-        log('Server admin key installed on node.')
-    } else {
-        log('Server admin key not available, skipping passwordless SSH setup.')
-    }
-
     log('Reading node metadata and public keys...')
     const inspect = await inspectNode({ host, username, password })
     const { stdout: keyOut } = await sshExec({
@@ -708,31 +626,74 @@ async function runProvisioning({
         throw new Error('Could not get node public keys')
     }
 
-    log(`Registering node ${inspect.uuid} in backend...`)
-    const provisionResponse = await callProvisionEndpoint({
-        apiBaseUrl,
-        token,
-        nodeUuid: inspect.uuid,
+    log('Node ready for registration.')
+    return {
+        uuid: inspect.uuid,
         name: normalizedName,
+        hostname: appliedHostname || inspect.hostname,
         mac: inspect.mac,
-        hostname: inspect.hostname,
         firmwareVersion: inspect.firmwareVersion,
         regPubKey,
         tunPubKey
-    })
+    }
+}
 
-    const tunnelPort = Number(provisionResponse.port || provisionResponse.tunnelPort || provisionResponse.sshPort || 0)
-    if (!Number.isInteger(tunnelPort) || tunnelPort <= 0) {
-        throw new Error('Backend did not return a valid tunnel_port')
+// Second half of provisioning: the caller (React) already registered the node
+// against its own backend (POST /api/nodes-provision) using the facts from
+// prepareNode(), and passes back here whatever that backend returned
+// (tunnelPort, serverAdminPublicKey, nodesRuntimeUrl, wsUrl) plus serverName.
+// This function never talks to any TKounterManager backend itself.
+async function finishProvisioning({
+    host,
+    username,
+    password,
+    serverName,
+    wsUrl,
+    nodesRuntimeUrl,
+    tunnelPort,
+    serverAdminPublicKey,
+    onProgress
+}) {
+    const log = (message) => {
+        console.log(`[PROVISION] ${message}`)
+        if (typeof onProgress === 'function') onProgress(message)
     }
 
-    log(`Assigned tunnel port: ${tunnelPort}`)
+    const normalizedTunnelPort = Number(tunnelPort)
+    if (!Number.isInteger(normalizedTunnelPort) || normalizedTunnelPort <= 0) {
+        throw new Error('A valid tunnelPort is required')
+    }
+    if (!serverName) {
+        throw new Error('serverName is required')
+    }
+
+    const normalizedNodesRuntimeUrl = normalizeBaseUrl(nodesRuntimeUrl)
+    const normalizedWsUrl = normalizeWsUrl(wsUrl)
+
+    let adminKeyInstalled = false
+    if (serverAdminPublicKey) {
+        log('Installing server admin key for passwordless SSH...')
+        const installKeyScript = [
+            'set -e',
+            'mkdir -p /etc/dropbear',
+            'touch /etc/dropbear/authorized_keys',
+            'chmod 600 /etc/dropbear/authorized_keys',
+            `KEY=${shellSingleQuote(serverAdminPublicKey)}`,
+            'grep -qxF "$KEY" /etc/dropbear/authorized_keys || printf "%s\\n" "$KEY" >> /etc/dropbear/authorized_keys'
+        ].join('\n')
+        await sshExec({ host, username, password, command: installKeyScript, timeoutMs: 20000, onOutput: log })
+        adminKeyInstalled = true
+        log('Server admin key installed on node.')
+    } else {
+        log('No server admin key provided, skipping passwordless SSH setup.')
+    }
+
     log('Writing tunnel script and init.d service...')
 
     const tunnelScript = [
         'set -e',
         `SERVER_NAME="${serverName}"`,
-        `PORT="${tunnelPort}"`,
+        `PORT="${normalizedTunnelPort}"`,
         'cat > /usr/bin/ssh_tunnel.sh <<"EOT"',
         '#!/bin/sh',
         'SERVER="__SERVER__"',
@@ -860,22 +821,16 @@ async function runProvisioning({
 
     log('Provisioning completed successfully.')
     return {
-        nodeUuid: inspect.uuid,
-        hostname: appliedHostname || inspect.hostname,
-        tunnelPort,
-        defaultSshAccess: `ssh root@localhost -p ${tunnelPort}`,
+        tunnelPort: normalizedTunnelPort,
+        defaultSshAccess: `ssh root@localhost -p ${normalizedTunnelPort}`,
         adminKeyInstalled,
         state: 'ok'
     }
 }
 
 module.exports = {
-    DEFAULT_PORT_BASE,
     discoverNodes,
     inspectNode,
-    authLogin,
-    runProvisioning,
-    waitForNodeReboot,
-    checkServicesRunning,
-    waitForServicesRunning
+    prepareNode,
+    finishProvisioning
 }
