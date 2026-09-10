@@ -28,6 +28,16 @@ const DEFAULTS = {
             wsUrl: 'ws://nodes-dev.techkovery.eu/ws',
             nodesRuntimeUrl: 'https://nodes-dev.techkovery.eu',
             serverName: 'techkovery.eu'
+        },
+        // Unlike prod/dev, there's no fixed hostname: each office runs its own
+        // TKounterManager instance on a LAN IP. Starts empty and is meant to
+        // be filled in once via PUT /config (the React wizard's "Editar" form).
+        local: {
+            origins: [],
+            apiBaseUrl: '',
+            wsUrl: '',
+            nodesRuntimeUrl: '',
+            serverName: ''
         }
     },
     // Used when a request has no Origin header (e.g. manual curl testing)
@@ -36,8 +46,10 @@ const DEFAULTS = {
     pairingToken: null
 }
 
-// Fields the local HTTP API is allowed to read/write via GET|PUT /config.
-// pairingToken is deliberately excluded: it is only generated/read locally.
+// prod/dev point at the real TKounterManager infra and must not be
+// repointed via the HTTP API; only custom entries (e.g. "local") are editable.
+const RESERVED_ENVIRONMENT_KEYS = ['prod', 'dev']
+
 let cached = null
 
 function persist(data) {
@@ -75,12 +87,30 @@ function get() {
     return cached || load()
 }
 
+// Merges each incoming environment onto its current values (so editing e.g.
+// "local" only requires sending the changed fields) and auto-derives
+// "origins" from apiBaseUrl when not given explicitly, since in practice the
+// SPA is served from the same origin as the API it talks to.
 function update(patch = {}) {
     const current = get()
     const next = { ...current }
+
     if (patch.environments && typeof patch.environments === 'object') {
-        next.environments = { ...current.environments, ...patch.environments }
+        next.environments = { ...current.environments }
+        for (const [key, patchedEnv] of Object.entries(patch.environments)) {
+            if (RESERVED_ENVIRONMENT_KEYS.includes(key)) continue
+            const merged = { ...(current.environments[key] || {}), ...patchedEnv }
+            if (!patchedEnv.origins && merged.apiBaseUrl) {
+                try {
+                    merged.origins = [new URL(merged.apiBaseUrl).origin]
+                } catch {
+                    merged.origins = []
+                }
+            }
+            next.environments[key] = merged
+        }
     }
+
     if (typeof patch.defaultEnvironment === 'string') {
         next.defaultEnvironment = patch.defaultEnvironment
     }
