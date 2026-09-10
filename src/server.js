@@ -15,10 +15,14 @@ if (process.argv.includes('--show-token')) {
 
 const LOCALHOST_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i
 
+// An origin is allowed to call this service if it belongs to one of the
+// configured environments (prod/dev/...) or is a local dev build (vite etc.);
+// anything else (a random webpage) is rejected by the browser via CORS.
 function isOriginAllowed(origin) {
     if (!origin) return true // same-machine tools (curl, health checks) send no Origin header
     if (LOCALHOST_ORIGIN.test(origin)) return true
-    return (config.get().allowedOrigins || []).includes(origin)
+    const environments = config.get().environments || {}
+    return Object.values(environments).some((env) => (env.origins || []).includes(origin))
 }
 
 const app = express()
@@ -40,14 +44,23 @@ app.get('/health', (req, res) => {
 
 app.use(requireAuth)
 
+// Lets the wizard show which deployment it will provision against before the
+// operator confirms ("detected" is what /provision would resolve for this
+// same request, i.e. driven by the caller's own Origin header).
 app.get('/config', (req, res) => {
-    const { apiBaseUrl, wsUrl, nodesRuntimeUrl, serverName } = config.get()
-    res.json({ apiBaseUrl, wsUrl, nodesRuntimeUrl, serverName })
+    const { environments, defaultEnvironment } = config.get()
+    let detected = null
+    try {
+        detected = config.resolveEnvironment(req.headers.origin).key
+    } catch {
+        detected = null
+    }
+    res.json({ environments, defaultEnvironment, detected })
 })
 
 app.put('/config', (req, res) => {
-    const { apiBaseUrl, wsUrl, nodesRuntimeUrl, serverName } = config.update(req.body)
-    res.json({ apiBaseUrl, wsUrl, nodesRuntimeUrl, serverName })
+    const { environments, defaultEnvironment } = config.update(req.body)
+    res.json({ environments, defaultEnvironment })
 })
 
 app.post('/discover', async (req, res) => {
@@ -75,13 +88,25 @@ app.post('/inspect', async (req, res) => {
 
 // Provisioning runs in the background; the client tracks it via jobId
 // (snapshot polling on GET /provision/:jobId or live updates via SSE).
+//
+// The target deployment (apiBaseUrl/wsUrl/nodesRuntimeUrl/serverName) is
+// NEVER taken from the request body: it is resolved server-side from the
+// caller's Origin header (or an explicit "environment" key, validated
+// against the configured list). Trusting client-supplied URLs here would let
+// a compromised page redirect the admin bearer token to an attacker host.
 app.post('/provision', (req, res) => {
-    const { host, name, username, password, token } = req.body || {}
+    const { host, name, username, password, token, environment } = req.body || {}
     if (!host || !name || !username || !token) {
         return res.status(400).json({ error: 'host, name, username and token are required' })
     }
 
-    const defaults = config.get()
+    let env
+    try {
+        env = config.resolveEnvironment(req.headers.origin, environment)
+    } catch (err) {
+        return res.status(400).json({ error: err.message })
+    }
+
     const job = jobs.createJob()
 
     runProvisioning({
@@ -90,14 +115,14 @@ app.post('/provision', (req, res) => {
         username,
         password,
         token,
-        apiBaseUrl: req.body.apiBaseUrl || defaults.apiBaseUrl,
-        wsUrl: req.body.wsUrl || defaults.wsUrl,
-        nodesRuntimeUrl: req.body.nodesRuntimeUrl || defaults.nodesRuntimeUrl,
-        serverName: req.body.serverName || defaults.serverName,
+        apiBaseUrl: env.apiBaseUrl,
+        wsUrl: env.wsUrl,
+        nodesRuntimeUrl: env.nodesRuntimeUrl,
+        serverName: env.serverName,
         onProgress: (message) => jobs.appendLog(job, message)
     }).then((result) => jobs.finish(job, result)).catch((err) => jobs.fail(job, err))
 
-    res.status(202).json({ jobId: job.id })
+    res.status(202).json({ jobId: job.id, environment: env.key })
 })
 
 app.get('/provision/:jobId', (req, res) => {

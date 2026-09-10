@@ -6,19 +6,38 @@ const crypto = require('crypto')
 const CONFIG_DIR = process.env.TKOUNTER_PROVISION_HOME || path.join(os.homedir(), '.tkounter-node-provision')
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json')
 
+// Known TKounterManager deployments this service is allowed to provision
+// nodes against. "origins" are matched against the request's Origin header
+// to auto-detect which one is calling (prod/dev share the same physical
+// server for the SSH tunnel, only the manager/nodes-runtime vhosts differ,
+// see TKounterManager/deploy/nginx/{techkovery,dev.techkovery}.conf).
+// Operators can add their own entries (e.g. a "local" one for a LAN dev
+// build) via PUT /config without touching these defaults.
 const DEFAULTS = {
-    apiBaseUrl: 'https://techkovery.eu',
-    wsUrl: 'ws://nodes.techkovery.eu/ws',
-    nodesRuntimeUrl: 'https://nodes.techkovery.eu',
-    serverName: 'techkovery.eu',
-    allowedOrigins: ['https://techkovery.eu'],
+    environments: {
+        prod: {
+            origins: ['https://techkovery.eu', 'https://www.techkovery.eu'],
+            apiBaseUrl: 'https://techkovery.eu',
+            wsUrl: 'ws://nodes.techkovery.eu/ws',
+            nodesRuntimeUrl: 'https://nodes.techkovery.eu',
+            serverName: 'techkovery.eu'
+        },
+        dev: {
+            origins: ['https://dev.techkovery.eu'],
+            apiBaseUrl: 'https://dev.techkovery.eu',
+            wsUrl: 'ws://nodes-dev.techkovery.eu/ws',
+            nodesRuntimeUrl: 'https://nodes-dev.techkovery.eu',
+            serverName: 'techkovery.eu'
+        }
+    },
+    // Used when a request has no Origin header (e.g. manual curl testing)
+    // and no explicit "environment" was given in the body.
+    defaultEnvironment: 'prod',
     pairingToken: null
 }
 
 // Fields the local HTTP API is allowed to read/write via GET|PUT /config.
 // pairingToken is deliberately excluded: it is only generated/read locally.
-const PUBLIC_FIELDS = ['apiBaseUrl', 'wsUrl', 'nodesRuntimeUrl', 'serverName', 'allowedOrigins']
-
 let cached = null
 
 function persist(data) {
@@ -42,7 +61,7 @@ function load() {
         }
     }
 
-    const merged = { ...DEFAULTS, ...stored }
+    const merged = { ...DEFAULTS, ...stored, environments: { ...DEFAULTS.environments, ...stored.environments } }
     if (!merged.pairingToken) {
         merged.pairingToken = crypto.randomBytes(24).toString('hex')
     }
@@ -59,14 +78,50 @@ function get() {
 function update(patch = {}) {
     const current = get()
     const next = { ...current }
-    for (const key of PUBLIC_FIELDS) {
-        if (Object.prototype.hasOwnProperty.call(patch, key)) {
-            next[key] = patch[key]
-        }
+    if (patch.environments && typeof patch.environments === 'object') {
+        next.environments = { ...current.environments, ...patch.environments }
+    }
+    if (typeof patch.defaultEnvironment === 'string') {
+        next.defaultEnvironment = patch.defaultEnvironment
     }
     persist(next)
     cached = next
     return cached
 }
 
-module.exports = { load, get, update, CONFIG_FILE }
+// Resolves which deployment (apiBaseUrl/wsUrl/nodesRuntimeUrl/serverName) to
+// provision against. Never trusts raw URLs from the caller: only a known
+// environment key (explicitKey) or the verified request Origin can select
+// one, so a compromised/malicious page cannot redirect the admin bearer
+// token to an attacker-controlled apiBaseUrl.
+function resolveEnvironment(origin, explicitKey) {
+    const environments = get().environments || {}
+
+    if (explicitKey) {
+        const env = environments[explicitKey]
+        if (!env) {
+            const error = new Error(`unknown_environment:${explicitKey}`)
+            throw error
+        }
+        return { key: explicitKey, ...env }
+    }
+
+    if (origin) {
+        for (const [key, env] of Object.entries(environments)) {
+            if ((env.origins || []).includes(origin)) {
+                return { key, ...env }
+            }
+        }
+    }
+
+    const fallbackKey = get().defaultEnvironment
+    const fallback = environments[fallbackKey]
+    if (fallback) {
+        return { key: fallbackKey, ...fallback }
+    }
+
+    throw new Error('environment_not_resolved')
+}
+
+module.exports = { load, get, update, resolveEnvironment, CONFIG_FILE }
+
