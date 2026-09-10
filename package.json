@@ -1,50 +1,19 @@
 {
     "name": "tkounter-node-provision",
-    "version": "1.1.0",
-    "description": "Desktop provisioning tool for TKounter nodes",
-    "main": "src/main/main.js",
+    "version": "2.0.0",
+    "description": "LAN service that provisions TKounter nodes, driven remotely by the TKounterManager web client",
+    "main": "src/server.js",
     "scripts": {
-        "dev": "electron .",
-        "start": "electron .",
-        "pack": "electron-builder --dir",
-        "dist": "electron-builder",
-        "dist:win": "electron-builder --win nsis"
+        "start": "node src/server.js",
+        "show-token": "node src/server.js --show-token"
     },
     "dependencies": {
         "axios": "^1.8.4",
-        "electron-store": "^10.0.1",
-        "feather-icons": "^4.29.2",
+        "cors": "2.8.5",
+        "express": "^5.2.1",
         "ssh2": "^1.16.0"
     },
-    "devDependencies": {
-        "electron": "^35.1.4",
-        "electron-builder": "^25.1.8"
-    },
-    "build": {
-        "appId": "techkovery.tkounter.nodeprovision",
-        "productName": "TKounter Node Provision",
-        "directories": {
-            "output": "dist"
-        },
-        "files": [
-            "src/**/*",
-            "node_modules/feather-icons/dist/**/*",
-            "package.json"
-        ],
-        "win": {
-            "signAndEditExecutable": false,
-            "target": [
-                {
-                    "target": "nsis",
-                    "arch": [
-                        "x64"
-                    ]
-                }
-            ]
-        },
-        "nsis": {
-            "oneClick": false,
-            "allowToChangeInstallationDirectory": true
-        }
+    "engines": {
+        "node": ">=18"
     }
 }
