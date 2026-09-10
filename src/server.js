@@ -100,7 +100,7 @@ app.post('/prepare', (req, res) => {
 })
 
 app.post('/finish', (req, res) => {
-    const { host, username, password, serverName, wsUrl, nodesRuntimeUrl, tunnelPort, serverAdminPublicKey } = req.body || {}
+    const { host, username, password, serverName, wsUrl, nodesRuntimeUrl, tunnelPort, serverAdminPublicKey, updateChannel } = req.body || {}
     if (!host || !username || !serverName || !wsUrl || !nodesRuntimeUrl || !tunnelPort) {
         return res.status(400).json({ error: 'host, username, serverName, wsUrl, nodesRuntimeUrl and tunnelPort are required' })
     }
@@ -115,6 +115,7 @@ app.post('/finish', (req, res) => {
         nodesRuntimeUrl,
         tunnelPort,
         serverAdminPublicKey,
+        updateChannel,
         onProgress: (message) => jobs.appendLog(job, message)
     }).then((result) => jobs.finish(job, result)).catch((err) => jobs.fail(job, err))
 

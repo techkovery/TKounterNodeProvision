@@ -5,7 +5,9 @@
     "main": "src/server.js",
     "scripts": {
         "start": "node src/server.js",
-        "show-token": "node src/server.js --show-token"
+        "show-token": "node src/server.js --show-token",
+        "electron:dev": "electron desktop/main.js",
+        "dist:win": "electron-builder --win --x64"
     },
     "dependencies": {
         "axios": "^1.8.4",
@@ -15,5 +17,58 @@
     },
     "engines": {
         "node": ">=18"
+    },
+    "devDependencies": {
+        "electron": "^44.3.0",
+        "electron-builder": "^26.15.3",
+        "png-to-ico": "^3.0.2"
+    },
+    "build": {
+        "appId": "eu.techkovery.tkounter-node-provision",
+        "productName": "TKounter Node Provision",
+        "asar": true,
+        "npmRebuild": false,
+        "extraMetadata": {
+            "main": "desktop/main.js"
+        },
+        "files": [
+            "src/**/*",
+            "desktop/**/*",
+            "package.json",
+            "!**/node_modules/ssh2/lib/protocol/crypto/build/**",
+            "!**/node_modules/cpu-features/**",
+            "!**/node_modules/nan/**"
+        ],
+        "directories": {
+            "output": "dist",
+            "buildResources": "build"
+        },
+        "win": {
+            "target": [
+                {
+                    "target": "nsis",
+                    "arch": [
+                        "x64"
+                    ]
+                }
+            ],
+            "icon": "build/icon.ico",
+            "protocols": [
+                {
+                    "name": "TKounter Node Provision",
+                    "schemes": [
+                        "tkounter-provision"
+                    ]
+                }
+            ]
+        },
+        "nsis": {
+            "oneClick": false,
+            "perMachine": false,
+            "allowToChangeInstallationDirectory": true,
+            "createDesktopShortcut": false,
+            "runAfterFinish": true,
+            "artifactName": "${productName}-Setup-${version}.${ext}"
+        }
     }
 }

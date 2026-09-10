@@ -1,3 +1,4 @@
 - Mover scripts bash a ficheros a parte
-- Añadir icono
-- Build app
+- ~~Añadir icono~~ (build/icon.ico, generado desde logo.png)
+- ~~Build app~~ (Electron tray wrapper en desktop/main.js, `npm run dist:win` genera el instalador NSIS per-user, sin admin)
+- Firmar el .exe (code signing) para evitar el aviso de SmartScreen en Windows

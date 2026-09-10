@@ -1,0 +1,15 @@
+{
+    "runtime": {
+        "interval_seconds": 300,
+        "log": {
+            "path": "/tmp/tkounter.log",
+            "max_size_kb": 512,
+            "level": "info"
+        },
+        "queue": {
+            "path": "/tmp/tkounter.queue",
+            "max_size_kb": 512
+        }
+    },
+    "devices": []
+}
