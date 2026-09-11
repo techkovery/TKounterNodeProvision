@@ -82,7 +82,7 @@ app.post('/inspect', async (req, res) => {
 // React does that in between, using the facts prepareNode() returns to call
 // its own backend, then passes whatever the backend replied with to /finish.
 app.post('/prepare', (req, res) => {
-    const { host, name, username, password } = req.body || {}
+    const { host, name, username, password, forceUuid } = req.body || {}
     if (!host || !name || !username) {
         return res.status(400).json({ error: 'host, name and username are required' })
     }
@@ -93,6 +93,7 @@ app.post('/prepare', (req, res) => {
         name,
         username,
         password,
+        forceUuid,
         onProgress: (message) => jobs.appendLog(job, message)
     }).then((result) => jobs.finish(job, result)).catch((err) => jobs.fail(job, err))
 

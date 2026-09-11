@@ -46,6 +46,11 @@ function shellSingleQuote(value) {
     return `'${String(value).replace(/'/g, "'\\''")}'`
 }
 
+// Matches the uuid v4-ish strings generate_uuid_v4() in prepare-node.sh
+// produces (36 lowercase hex chars + dashes). Used to validate `forceUuid`
+// (re-provisioning an existing node) before it ever touches a shell command.
+const NODE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
 const NODE_SCRIPTS_DIR = path.join(__dirname, 'node-scripts')
 
 // Reads one of the shell/JSON templates under src/node-scripts, stripping the
@@ -497,7 +502,17 @@ async function waitForServicesRunning({ host, username, password, onOutput, maxA
 // First half of provisioning: everything that only needs SSH access to the
 // node itself, no TKounterManager backend involved. Returns the facts the
 // caller (React) needs to register the node against its own backend.
-async function prepareNode({ host, name, username, password, onProgress }) {
+//
+// `forceUuid` covers two "re-provision" scenarios (as opposed to a brand new
+// node): replacing broken hardware with a new unit that must take over an
+// existing node's identity, and rebuilding a corrupted/factory-reset unit
+// that lost its own /etc/tkounter/node_uuid but should keep being the same
+// node in TKounterManager. In both cases the caller passes the uuid already
+// stored in TKounterManager's DB for that node, and this function makes the
+// (possibly fresh) filesystem report that uuid instead of generating a new
+// one, so `POST /api/nodes-provision` updates the existing DB row (same tid,
+// same controllers/sensors/records) instead of creating a new node.
+async function prepareNode({ host, name, username, password, forceUuid, onProgress }) {
     const log = (message) => {
         console.log(`[PROVISION] ${message}`)
         if (typeof onProgress === 'function') onProgress(message)
@@ -517,6 +532,29 @@ async function prepareNode({ host, name, username, password, onProgress }) {
     }
     if (/[\u0000-\u001f\u007f]/.test(normalizedName)) {
         throw new Error('Node name contains invalid control characters')
+    }
+
+    const normalizedForceUuid = forceUuid ? String(forceUuid).trim().toLowerCase() : ''
+    if (normalizedForceUuid && !NODE_UUID_RE.test(normalizedForceUuid)) {
+        throw new Error('forceUuid is not a valid uuid')
+    }
+
+    if (normalizedForceUuid) {
+        // Written as its own step (before prepare-node.sh, which only generates a
+        // uuid when the file is missing) so a re-provisioned/replaced unit adopts
+        // the target node's identity instead of getting a brand new one. Value is
+        // already validated above and single-quoted regardless, matching how
+        // every other externally-supplied value in this file reaches the remote
+        // shell (never interpolated unquoted into an executed command).
+        log(`Forcing node identity to existing uuid ${normalizedForceUuid}...`)
+        await sshExec({
+            host,
+            username,
+            password,
+            command: `mkdir -p /etc/tkounter && printf '%s' ${shellSingleQuote(normalizedForceUuid)} > /etc/tkounter/node_uuid`,
+            timeoutMs: 10000,
+            onOutput: log
+        })
     }
 
     log('Preparing node (UUID, keys, base packages)...')
@@ -565,6 +603,10 @@ async function prepareNode({ host, name, username, password, onProgress }) {
         throw new Error('Could not get node_uuid from the node')
     }
 
+    if (normalizedForceUuid && inspect.uuid !== normalizedForceUuid) {
+        throw new Error('Node did not adopt the forced uuid; aborting to avoid registering it under the wrong identity')
+    }
+
     if (!regPubKey || !tunPubKey) {
         throw new Error('Could not get node public keys')
     }
@@ -577,7 +619,8 @@ async function prepareNode({ host, name, username, password, onProgress }) {
         mac: inspect.mac,
         firmwareVersion: inspect.firmwareVersion,
         regPubKey,
-        tunPubKey
+        tunPubKey,
+        reprovisioned: Boolean(normalizedForceUuid)
     }
 }
 
