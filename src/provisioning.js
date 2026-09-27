@@ -739,6 +739,28 @@ async function finishProvisioning({
 
     await sshExec({ host, username, password, command: installScript, timeoutMs: 240000, onOutput: log })
 
+    log('Installing CA bundle maintenance cron job...')
+
+    // Recurring self-update (not just at provisioning time): a future CA/root
+    // rotation on the server certificate must not silently break already
+    // deployed nodes again. Runs monthly, logs to /var/log so it's visible
+    // via the log viewer/download.
+    const caBundleCronScript = [
+        'set -e',
+        'cat > /usr/bin/update-ca-bundle.sh <<"EOT"',
+        readNodeScript('update-ca-bundle.sh'),
+        'EOT',
+        'chmod +x /usr/bin/update-ca-bundle.sh',
+        'mkdir -p /etc/crontabs',
+        'touch /etc/crontabs/root',
+        'CRON_LINE="0 3 1 * * /usr/bin/update-ca-bundle.sh"',
+        'grep -qxF "$CRON_LINE" /etc/crontabs/root || echo "$CRON_LINE" >> /etc/crontabs/root',
+        '/etc/init.d/cron enable || true',
+        '/etc/init.d/cron restart || true'
+    ].join('\n')
+
+    await sshExec({ host, username, password, command: caBundleCronScript, timeoutMs: 30000, onOutput: log })
+
     log('Rebooting node...')
     await sshExec({
         host,
