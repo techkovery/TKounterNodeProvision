@@ -1,13 +1,15 @@
 {
     "name": "tkounter-node-provision",
     "version": "2.1.0",
+    "private": true,
     "description": "LAN service that provisions TKounter nodes, driven remotely by the TKounterManager web client",
     "main": "src/server.js",
     "scripts": {
         "start": "node src/server.js",
         "show-token": "node src/server.js --show-token",
         "electron:dev": "electron desktop/main.js",
-        "dist:win": "electron-builder --win --x64"
+        "dist:win": "electron-builder --win --x64",
+        "release": "release-it"
     },
     "dependencies": {
         "axios": "^1.8.4",
@@ -21,7 +23,8 @@
     "devDependencies": {
         "electron": "^44.3.0",
         "electron-builder": "^26.15.3",
-        "png-to-ico": "^3.0.2"
+        "png-to-ico": "^3.0.2",
+        "release-it": "^19.2.4"
     },
     "build": {
         "appId": "eu.techkovery.tkounter-node-provision",
