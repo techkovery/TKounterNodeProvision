@@ -5,6 +5,18 @@ set -euo pipefail
 # vez que la versión ya está commiteada, taggeada y pusheada. Aquí solo se compila
 # el instalador de Windows y se sube al update-server, igual que hace TKounterNode
 # en su propio release.sh.
+#
+# release-it ejecuta los hooks con stdout/stderr redirigidos a pipes internos (los
+# buffera y solo los vuelca al terminal al terminar el comando, incluso con
+# --verbose). Para ver el progreso en tiempo real, forzamos la salida al terminal
+# real saltándonos esos pipes. El stdin, en cambio, sigue sin llegar al terminal
+# real: por eso este script no debe abrir nada interactivo (vim, un prompt...): se
+# quedaría colgado esperando una entrada que nunca le llega. El changelog se genera
+# siempre a partir de "git log", sin edición manual; si hace falta corregirlo, se
+# edita el .txt y se vuelve a subir a mano con el mismo curl de más abajo.
+if [ -c /dev/tty ] 2>/dev/null; then
+    exec >/dev/tty 2>&1
+fi
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
@@ -57,9 +69,7 @@ fi
 echo "==> Generando changelog"
 CHANGELOG_PATH="$DIST_DIR/${APP_NAME}_${VERSION}.txt"
 create_changelog "$VERSION" "$CHANGELOG_PATH"
-
-echo "==> Abriendo changelog en vim (guarda y cierra para continuar)"
-vim "$CHANGELOG_PATH"
+cat "$CHANGELOG_PATH"
 
 echo "==> Subiendo instalador"
 curl -f -sS -X POST \
