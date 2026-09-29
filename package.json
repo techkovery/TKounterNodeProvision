@@ -1,6 +1,6 @@
 {
     "name": "tkounter-node-provision",
-    "version": "2.1.0",
+    "version": "2.2.0",
     "private": true,
     "description": "LAN service that provisions TKounter nodes, driven remotely by the TKounterManager web client",
     "main": "src/server.js",
