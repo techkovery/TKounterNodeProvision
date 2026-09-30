@@ -54,9 +54,13 @@ const NODE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const NODE_SCRIPTS_DIR = path.join(__dirname, 'node-scripts')
 
 // Reads one of the shell/JSON templates under src/node-scripts, stripping the
-// trailing newline so callers can freely join it with other lines.
+// trailing newline so callers can freely join it with other lines. Also
+// strips any \r: these files are sent verbatim to the node's /bin/sh (BusyBox
+// ash on OpenWrt), and a stray \r in a shebang line (e.g. "#!/bin/sh
+// /etc/rc.common\r") makes the kernel look for a file literally named
+// "/etc/rc.common\r", which doesn't exist.
 function readNodeScript(name) {
-    return fs.readFileSync(path.join(NODE_SCRIPTS_DIR, name), 'utf8').replace(/\n$/, '')
+    return fs.readFileSync(path.join(NODE_SCRIPTS_DIR, name), 'utf8').replace(/\r/g, '').replace(/\n$/, '')
 }
 
 // Reads a node-scripts template and replaces its __TOKEN__ placeholders with
