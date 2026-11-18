@@ -725,7 +725,9 @@ async function finishProvisioning({
         `UPDATES_APP="${UPDATES_APP}"`,
         `UPDATES_FLAVOR="${UPDATES_FLAVOR}"`,
         'mkdir -p /etc/tkounter /overlay/tkounter /tmp/tkounter-update',
-        '[ -f /etc/tkounter/bootstrap.json ] || cat > /etc/tkounter/bootstrap.json <<"EOT"',
+        // Always overwritten: a unit re-provisioned against another environment
+        // (e.g. dev -> prod) must not keep pointing at the old nodes runtime.
+        'cat > /etc/tkounter/bootstrap.json <<"EOT"',
         bootstrapContent,
         'EOT',
         '[ -f /etc/tkounter/config.json ] || cat > /etc/tkounter/config.json <<"EOT"',
